@@ -94,7 +94,7 @@ Once both the backend and frontend servers are running:
 
 ## Project Structure
 
-- `app/`:
+- `app/`: Contains frontend part (GUI).
 - `backend/`: Contains the Python backend server code.
    - `main.py`: Main script to run the backend server.
 - `README.md`: Documentation for the project.
