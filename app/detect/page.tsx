@@ -58,43 +58,46 @@ export default function DetectPage() {
   const displayDistance = unit === 'm' ? distance.toFixed(2) : (distance * 100).toFixed(0)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-cream to-red-100 p-4">
-      <h1 className="text-3xl font-bold mb-4 text-center">Face Distance Detector</h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader>
+    <div className="min-h-screen bg-gray-100 p-10">
+      <h1 className="text-4xl font-semibold text-gray-900 text-center mb-12">Face Distance Detector</h1>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+        <Card className="bg-white rounded-lg shadow-md p-6">
+          <CardHeader className="bg-gray-50 text-gray-900 py-4 px-6 rounded-t-lg">
             <CardTitle>Live Camera Feed</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-6">
             <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
               {image && <img src={image} alt="Live feed" className="w-full h-full object-cover" />}
               {isDetecting && (
                 <div className="absolute inset-0 flex items-center justify-center">
-                  {/* <div className="border-4 border-green-500 w-1/2 h-1/2 flex items-center justify-center text-white text-2xl font-bold">
-                    {displayDistance} {unit}
-                  </div> */}
+                  {/* Optional: display distance on the screen */}
                 </div>
               )}
             </div>
-            <div className="mt-4 flex justify-center space-x-4">
-              <Button onClick={toggleDetection}>
+            <div className="flex justify-center space-x-6">
+              <Button 
+                onClick={toggleDetection} 
+                className="bg-red-500 hover:bg-red-600 text-white px-8 py-3 rounded-lg shadow-sm transition-colors duration-300">
                 {isDetecting ? 'Stop Detection' : 'Start Detection'}
               </Button>
-              <Button onClick={toggleUnit}>
+              <Button 
+                onClick={toggleUnit} 
+                className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-lg shadow-sm transition-colors duration-300">
                 Toggle Unit ({unit})
               </Button>
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
+
+        <Card className="bg-white rounded-lg shadow-md p-6">
+          <CardHeader className="bg-gray-50 text-gray-900 py-4 px-6 rounded-t-lg">
             <CardTitle>Detection History</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-6">
             <Tabs defaultValue="chart">
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="chart">Chart</TabsTrigger>
-                <TabsTrigger value="table">Table</TabsTrigger>
+                <TabsTrigger value="chart" className="text-red-500">Chart</TabsTrigger>
+                <TabsTrigger value="table" className="text-red-500">Table</TabsTrigger>
               </TabsList>
               <TabsContent value="chart">
                 <ResponsiveContainer width="100%" height={300}>
@@ -104,13 +107,13 @@ export default function DetectPage() {
                     <YAxis />
                     <Tooltip />
                     <Legend />
-                    <Line type="monotone" dataKey="distance" stroke="#8884d8" />
+                    <Line type="monotone" dataKey="distance" stroke="#E63946" />
                   </LineChart>
                 </ResponsiveContainer>
               </TabsContent>
               <TabsContent value="table">
-                <table className="w-full">
-                  <thead>
+                <table className="w-full table-auto text-sm text-gray-700">
+                  <thead className="bg-gray-50 text-gray-800">
                     <tr>
                       <th>Time</th>
                       <th>Distance ({unit})</th>
@@ -118,7 +121,7 @@ export default function DetectPage() {
                   </thead>
                   <tbody>
                     {history.map((entry, index) => (
-                      <tr key={index}>
+                      <tr key={index} className="hover:bg-gray-100">
                         <td>{entry.time}</td>
                         <td>{unit === 'm' ? entry.distance.toFixed(2) : (entry.distance * 100).toFixed(0)}</td>
                       </tr>
@@ -133,4 +136,3 @@ export default function DetectPage() {
     </div>
   )
 }
-
