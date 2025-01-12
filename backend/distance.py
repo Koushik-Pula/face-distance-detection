@@ -1,97 +1,96 @@
+import base64
 import cv2
 import asyncio
+import websockets
+import json
 
+KNOWN_DISTANCE = 0.45  # 45 cm in meters
+KNOWN_WIDTH = 0.15  # Assuming average face width is 15 cm, in meters
 
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
-
-KNOWN_DISTANCE = 40 
-KNOWN_WIDTH = 15 
-
-
-SCALING_FACTOR = 1.0 
-
-def calculate_focal_length(distance, known_width, pixel_width):
-    focal_length = (pixel_width * distance) / known_width
+def calculate_focal_length(known_distance, known_width, pixel_width):
+    focal_length = (pixel_width * known_distance) / known_width
     return focal_length
 
+def detect_face_and_distance(frame, focal_length):
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
 
-def estimate_distance(focal_length, known_width, pixel_width):
-    distance = (known_width * focal_length) / pixel_width
-    return distance * SCALING_FACTOR 
+    if len(faces) > 0:
+        (x, y, w, h) = faces[0]
+        # Calculate distance in meters
+        distance = (KNOWN_WIDTH * focal_length) / w
 
+        # Draw bounding box
+        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
 
-async def calibrate(cap):
-    print("Calibrating... Please wait.")
+        # Display distance on top of the bounding box
+        label = f"{distance:.2f}m"
+        cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+        return distance, frame
+    else:
+        return None, frame
+
+async def calibrate(cap, websocket):
+    await websocket.send_json({"calibrationStatus": "Calibrating... Please wait."})
     focal_length = None
-    for _ in range(30):  
+    for i in range(30):
         ret, frame = cap.read()
         if not ret:
             continue
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(30, 30))
 
         if len(faces) > 0:
             (x, y, w, h) = faces[0]
             focal_length = calculate_focal_length(KNOWN_DISTANCE, KNOWN_WIDTH, w)
+            await websocket.send_json({
+                "calibrationStatus": f"Calibration successful with focal length: {focal_length:.2f}",
+                "progress": 100
+            })
             break
 
+        await websocket.send_json({"calibrationStatus": f"Calibrating... {i+1}/30", "progress": (i+1) * 100 // 30})
         await asyncio.sleep(0.1)
 
     if focal_length is None:
+        await websocket.send_json({"calibrationStatus": "Calibration failed. No face detected.", "progress": 100})
         raise Exception("Calibration failed. No face detected.")
 
-    print("Calibration complete.")
+    await websocket.send_json({"calibrationStatus": "Calibration complete.", "progress": 100})
     return focal_length
 
-
-def detect_face_and_distance(frame, focal_length):
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-
-    if len(faces) > 0:
-        (x, y, w, h) = faces[0]
-        distance_cm = estimate_distance(focal_length, KNOWN_WIDTH, w)
-        distance_m = distance_cm / 100.0
-        
-        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        cv2.putText(frame, f"Distance: {distance_m:.2f} meters", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        return distance_m
-    else:
-        print("No face detected")
-        cv2.putText(frame, "No face detected", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-        return None  
-
-
-
-cap = cv2.VideoCapture(0)
-
-
 async def main():
-    focal_length = await calibrate(cap)
+    async with websockets.serve(handler, "localhost", 8765):
+        await asyncio.Future()  # run forever
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+async def handler(websocket, path):
+    cap = cv2.VideoCapture(0)
+    try:
+        focal_length = await calibrate(cap, websocket)
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            distance, processed_frame = detect_face_and_distance(frame, focal_length)
+            if distance is not None:
+                await websocket.send(json.dumps({"distance": distance}))
+            _, buffer = cv2.imencode('.jpg', processed_frame)
+            jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+            await websocket.send_json({
+                "image": jpg_as_text,
+                "distance": distance if distance is not None else -1
+            })
+            await asyncio.sleep(0.1)
 
-        distance = detect_face_and_distance(frame, focal_length)
-        if distance is not None:
-            print(f"Distance: {distance:.2f} meters")
-        else:
-            print("No face detected")
-
-      
-        cv2.imshow('Frame', frame)
-
-        
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    
-    cap.release()
-    cv2.destroyAllWindows()
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        cap.release()
+        await websocket.close()
 
 if __name__ == "__main__":
     asyncio.run(main())

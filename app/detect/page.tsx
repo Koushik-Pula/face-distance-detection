@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { Progress } from '@/components/ui/progress'
 
 export default function DetectPage() {
   const [isDetecting, setIsDetecting] = useState(false)
@@ -12,6 +13,9 @@ export default function DetectPage() {
   const [unit, setUnit] = useState<'m' | 'cm'>('m')
   const [history, setHistory] = useState<{ time: string, distance: number }[]>([])
   const [image, setImage] = useState<string | null>(null)
+  const [calibrationStatus, setCalibrationStatus] = useState('')
+  const [calibrationProgress, setCalibrationProgress] = useState(0)
+  const [smoothProgress, setSmoothProgress] = useState(0);
   const socketRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
@@ -28,6 +32,8 @@ export default function DetectPage() {
         socketRef.current.close()
         socketRef.current = null
       }
+      setCalibrationStatus('')
+      setCalibrationProgress(0)
     } else {
       socketRef.current = new WebSocket('ws://localhost:8000/ws')
       socketRef.current.onmessage = (event) => {
@@ -37,6 +43,11 @@ export default function DetectPage() {
         } else if (data.error) {
           console.error(data.error)
           setIsDetecting(false)
+        } else if (data.calibrationStatus) {
+          setCalibrationStatus(data.calibrationStatus)
+          if (data.progress !== undefined) {
+            setSmoothProgress(data.progress);
+          }
         } else if (data.distance !== undefined) {
           if (data.distance >= 0) {
             setDistance(data.distance)
@@ -57,6 +68,23 @@ export default function DetectPage() {
 
   const displayDistance = unit === 'm' ? distance.toFixed(2) : (distance * 100).toFixed(0)
 
+  useEffect(() => {
+    const animationDuration = 50; // ms
+    const steps = 5;
+    const increment = (smoothProgress - calibrationProgress) / steps;
+    
+    if (increment > 0) {
+      const interval = setInterval(() => {
+        setCalibrationProgress(prev => {
+          const next = prev + increment;
+          return next > smoothProgress ? smoothProgress : next;
+        });
+      }, animationDuration / steps);
+
+      return () => clearInterval(interval);
+    }
+  }, [smoothProgress]);
+
   return (
     <div className="min-h-screen bg-gray-100 p-10">
       <h1 className="text-4xl font-semibold text-gray-900 text-center mb-12">Face Distance Detector</h1>
@@ -74,17 +102,25 @@ export default function DetectPage() {
                 </div>
               )}
             </div>
-            <div className="flex justify-center space-x-6">
-              <Button 
-                onClick={toggleDetection} 
-                className="bg-red-500 hover:bg-red-600 text-white px-8 py-3 rounded-lg shadow-sm transition-colors duration-300">
-                {isDetecting ? 'Stop Detection' : 'Start Detection'}
-              </Button>
-              <Button 
-                onClick={toggleUnit} 
-                className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-lg shadow-sm transition-colors duration-300">
-                Toggle Unit ({unit})
-              </Button>
+            <div className="flex flex-col space-y-4">
+              <div className="flex justify-center space-x-6">
+                <Button 
+                  onClick={toggleDetection} 
+                  className="bg-red-500 hover:bg-red-600 text-white px-8 py-3 rounded-lg shadow-sm transition-colors duration-300">
+                  {isDetecting ? 'Stop Detection' : 'Start Detection'}
+                </Button>
+                <Button 
+                  onClick={toggleUnit} 
+                  className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-lg shadow-sm transition-colors duration-300">
+                  Toggle Unit ({unit})
+                </Button>
+              </div>
+              {calibrationStatus && (
+                <div className="text-center">
+                  <p className="text-sm text-gray-600 mb-2">{calibrationStatus}</p>
+                  <Progress value={calibrationProgress} className="w-full" />
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -136,3 +172,4 @@ export default function DetectPage() {
     </div>
   )
 }
+
