@@ -54,6 +54,11 @@ Manually install the required Python dependencies:
 ```bash
 pip install opencv-python 
 ```
+```bash
+pip install "uvicorn[standard]" websockets
+```
+or 
+
 
 #### Run the Backend Server
 
