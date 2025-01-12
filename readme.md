@@ -114,11 +114,7 @@ Once both the backend and frontend servers are running:
 
 Feel free to open issues or submit pull requests to enhance the project.
 
-## License
 
-This project is licensed under the MIT License. See the `LICENSE` file for details.
-
----
 
 Happy coding!
 
