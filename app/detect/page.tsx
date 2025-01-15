@@ -5,89 +5,172 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { Progress } from '@/components/ui/progress'
+
+
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/ws'
 
 export default function DetectPage() {
   const [isDetecting, setIsDetecting] = useState(false)
   const [distance, setDistance] = useState(0)
   const [unit, setUnit] = useState<'m' | 'cm'>('m')
   const [history, setHistory] = useState<{ time: string, distance: number }[]>([])
-  const [image, setImage] = useState<string | null>(null)
-  const [calibrationStatus, setCalibrationStatus] = useState('')
-  const [calibrationProgress, setCalibrationProgress] = useState(0)
-  const [smoothProgress, setSmoothProgress] = useState(0);
+  const [detectionInfo, setDetectionInfo] = useState<{ distance: number, image: string | null }>({ distance: 0, image: null })
   const socketRef = useRef<WebSocket | null>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     return () => {
       if (socketRef.current) {
         socketRef.current.close()
       }
+      if (videoRef.current) {
+        const stream = videoRef.current.srcObject as MediaStream | null
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop())
+        }
+        videoRef.current.srcObject = null
+      }
     }
   }, [])
 
-  const toggleDetection = () => {
-    if (isDetecting) {
-      if (socketRef.current) {
-        socketRef.current.close()
-        socketRef.current = null
-      }
-      setCalibrationStatus('')
-      setCalibrationProgress(0)
-    } else {
-      socketRef.current = new WebSocket('ws://localhost:8000/ws')
-      socketRef.current.onmessage = (event) => {
+  const setupWebSocket = () => {
+    if (socketRef.current) {
+      socketRef.current.close()
+    }
+
+    socketRef.current = new WebSocket(WS_URL)
+    
+    socketRef.current.onopen = () => {
+      console.log('WebSocket Connected')
+      setError(null)
+    }
+
+    socketRef.current.onclose = () => {
+      console.log('WebSocket Disconnected')
+      setError('Connection lost. Please try again.')
+      setIsDetecting(false)
+    }
+
+    socketRef.current.onerror = (error) => {
+      console.error('WebSocket Error:', error)
+      setError('Failed to connect to server')
+      setIsDetecting(false)
+    }
+
+    socketRef.current.onmessage = (event) => {
+      try {
         const data = JSON.parse(event.data)
-        if (data.message) {
-          console.log(data.message)
-        } else if (data.error) {
+        if (data.error) {
           console.error(data.error)
+          setError(data.error)
           setIsDetecting(false)
-        } else if (data.calibrationStatus) {
-          setCalibrationStatus(data.calibrationStatus)
-          if (data.progress !== undefined) {
-            setSmoothProgress(data.progress);
-          }
         } else if (data.distance !== undefined) {
+          setError(null)
           if (data.distance >= 0) {
             setDistance(data.distance)
-            setHistory(prev => [...prev, { time: new Date().toLocaleTimeString(), distance: data.distance }].slice(-10))
+            setHistory(prev => [...prev, { 
+              time: new Date().toLocaleTimeString(), 
+              distance: data.distance 
+            }].slice(-10))
           }
           if (data.image) {
-            setImage(`data:image/jpeg;base64,${data.image}`)
+            setDetectionInfo({
+              distance: data.distance,
+              image: data.image
+            })
           }
         }
+      } catch (err) {
+        console.error('Error parsing message:', err)
       }
     }
-    setIsDetecting(!isDetecting)
   }
 
-  const toggleUnit = () => {
-    setUnit(unit === 'm' ? 'cm' : 'm')
+  const toggleDetection = async () => {
+    try {
+      if (isDetecting) {
+        if (socketRef.current) {
+          socketRef.current.close()
+          socketRef.current = null
+        }
+        if (videoRef.current) {
+          const stream = videoRef.current.srcObject as MediaStream | null
+          if (stream) {
+            stream.getTracks().forEach(track => track.stop())
+          }
+          videoRef.current.srcObject = null
+        }
+        setIsDetecting(false)
+      } else {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { 
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          } 
+        })
+        
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          await videoRef.current.play()
+          setupWebSocket()
+          setIsDetecting(true)
+        }
+      }
+    } catch (err) {
+      console.error('Error:', err)
+      setError(err instanceof Error ? err.message : 'Failed to access camera')
+      setIsDetecting(false)
+    }
   }
+
+  const toggleUnit = () => setUnit(unit === 'm' ? 'cm' : 'm')
 
   const displayDistance = unit === 'm' ? distance.toFixed(2) : (distance * 100).toFixed(0)
 
-  useEffect(() => {
-    const animationDuration = 50; // ms
-    const steps = 5;
-    const increment = (smoothProgress - calibrationProgress) / steps;
-    
-    if (increment > 0) {
-      const interval = setInterval(() => {
-        setCalibrationProgress(prev => {
-          const next = prev + increment;
-          return next > smoothProgress ? smoothProgress : next;
-        });
-      }, animationDuration / steps);
-
-      return () => clearInterval(interval);
+  const sendFrameToBackend = () => {
+    if (!videoRef.current || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+      return
     }
-  }, [smoothProgress]);
+
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = videoRef.current.videoWidth
+      canvas.height = videoRef.current.videoHeight
+      const ctx = canvas.getContext('2d')
+      
+      if (ctx) {
+        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height)
+        const base64Image = canvas.toDataURL('image/jpeg', 0.7).split(',')[1]
+        socketRef.current.send(JSON.stringify({ image: base64Image }))
+      }
+    } catch (err) {
+      console.error('Error sending frame:', err)
+    }
+  }
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout | undefined
+
+    if (isDetecting) {
+      interval = setInterval(sendFrameToBackend, 100)
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval)
+      }
+    }
+  }, [isDetecting])
 
   return (
     <div className="min-h-screen bg-gray-100 p-10">
       <h1 className="text-4xl font-semibold text-gray-900 text-center mb-12">Face Distance Detector</h1>
+      {error && (
+        <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
+          {error}
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
         <Card className="bg-white rounded-lg shadow-md p-6">
           <CardHeader className="bg-gray-50 text-gray-900 py-4 px-6 rounded-t-lg">
@@ -95,10 +178,19 @@ export default function DetectPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
-              {image && <img src={image} alt="Live feed" className="w-full h-full object-cover" />}
-              {isDetecting && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  {/* Optional: display distance on the screen */}
+              <video 
+                ref={videoRef} 
+                className="w-full h-full object-cover" 
+                playsInline 
+                muted 
+              />
+              {isDetecting && detectionInfo.image && (
+                <div className="absolute inset-0">
+                  <img 
+                    src={`data:image/jpeg;base64,${detectionInfo.image}`} 
+                    alt="Detected Face" 
+                    className="w-full h-full object-cover" 
+                  />
                 </div>
               )}
             </div>
@@ -106,21 +198,20 @@ export default function DetectPage() {
               <div className="flex justify-center space-x-6">
                 <Button 
                   onClick={toggleDetection} 
-                  className="bg-red-500 hover:bg-red-600 text-white px-8 py-3 rounded-lg shadow-sm transition-colors duration-300">
+                  variant="destructive"
+                  className="px-8 py-3">
                   {isDetecting ? 'Stop Detection' : 'Start Detection'}
                 </Button>
                 <Button 
                   onClick={toggleUnit} 
-                  className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-lg shadow-sm transition-colors duration-300">
+                  variant="destructive"
+                  className="px-8 py-3">
                   Toggle Unit ({unit})
                 </Button>
               </div>
-              {calibrationStatus && (
-                <div className="text-center">
-                  <p className="text-sm text-gray-600 mb-2">{calibrationStatus}</p>
-                  <Progress value={calibrationProgress} className="w-full" />
-                </div>
-              )}
+              <div className="text-center text-2xl font-bold">
+                Distance: {displayDistance} {unit}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -132,8 +223,8 @@ export default function DetectPage() {
           <CardContent className="space-y-6">
             <Tabs defaultValue="chart">
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="chart" className="text-red-500">Chart</TabsTrigger>
-                <TabsTrigger value="table" className="text-red-500">Table</TabsTrigger>
+                <TabsTrigger value="chart">Chart</TabsTrigger>
+                <TabsTrigger value="table">Table</TabsTrigger>
               </TabsList>
               <TabsContent value="chart">
                 <ResponsiveContainer width="100%" height={300}>
@@ -148,22 +239,26 @@ export default function DetectPage() {
                 </ResponsiveContainer>
               </TabsContent>
               <TabsContent value="table">
-                <table className="w-full table-auto text-sm text-gray-700">
-                  <thead className="bg-gray-50 text-gray-800">
-                    <tr>
-                      <th>Time</th>
-                      <th>Distance ({unit})</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {history.map((entry, index) => (
-                      <tr key={index} className="hover:bg-gray-100">
-                        <td>{entry.time}</td>
-                        <td>{unit === 'm' ? entry.distance.toFixed(2) : (entry.distance * 100).toFixed(0)}</td>
+                <div className="overflow-x-auto">
+                  <table className="w-full table-auto text-sm text-gray-700">
+                    <thead className="bg-gray-50 text-gray-800">
+                      <tr>
+                        <th className="px-4 py-2">Time</th>
+                        <th className="px-4 py-2">Distance ({unit})</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {history.map((entry, index) => (
+                        <tr key={index} className="hover:bg-gray-100">
+                          <td className="border px-4 py-2">{entry.time}</td>
+                          <td className="border px-4 py-2">
+                            {unit === 'm' ? entry.distance.toFixed(2) : (entry.distance * 100).toFixed(0)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </TabsContent>
             </Tabs>
           </CardContent>
@@ -172,4 +267,3 @@ export default function DetectPage() {
     </div>
   )
 }
-
