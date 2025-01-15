@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/ws'
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'wss://face-distance-detection.onrender.com/ws'
 
 export default function DetectPage() {
   const [isDetecting, setIsDetecting] = useState(false)
