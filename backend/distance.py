@@ -4,8 +4,8 @@ import asyncio
 import websockets
 import json
 
-KNOWN_DISTANCE = 0.45  # 45 cm in meters
-KNOWN_WIDTH = 0.15  # Assuming average face width is 15 cm, in meters
+KNOWN_DISTANCE = 0.45 
+KNOWN_WIDTH = 0.15  
 
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
@@ -19,13 +19,12 @@ def detect_face_and_distance(frame, focal_length):
 
     if len(faces) > 0:
         (x, y, w, h) = faces[0]
-        # Calculate distance in meters
+       
         distance = (KNOWN_WIDTH * focal_length) / w
 
-        # Draw bounding box
         cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
 
-        # Display distance on top of the bounding box
+
         label = f"{distance:.2f}m"
         cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
@@ -65,7 +64,7 @@ async def calibrate(cap, websocket):
 
 async def main():
     async with websockets.serve(handler, "localhost", 8765):
-        await asyncio.Future()  # run forever
+        await asyncio.Future()
 
 async def handler(websocket, path):
     cap = cv2.VideoCapture(0)
