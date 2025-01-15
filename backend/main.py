@@ -25,19 +25,20 @@ KNOWN_WIDTH = 0.15
 
 async def get_camera():
     logger.info("Attempting to initialize camera...")
-    for i in range(5):  
-        camera = cv2.VideoCapture(0)
-        if camera.isOpened():
-            logger.info(f"Camera successfully opened on attempt {i+1}")
-            ret, frame = camera.read()
-            if ret:
-                logger.info("Successfully read a frame from the camera")
-                return camera
+    for i in range(5):  # Try 5 times
+        for index in range(5):  # Check up to 5 indexes
+            camera = cv2.VideoCapture(index)
+            if camera.isOpened():
+                logger.info(f"Camera successfully opened at index {index} on attempt {i+1}")
+                ret, frame = camera.read()
+                if ret:
+                    logger.info("Successfully read a frame from the camera")
+                    return camera
+                else:
+                    logger.warning(f"Camera opened but couldn't read a frame at index {index}")
             else:
-                logger.warning("Camera opened but couldn't read a frame")
-        else:
-            logger.warning(f"Failed to open camera on attempt {i+1}")
-        await asyncio.sleep(1)
+                logger.warning(f"Failed to open camera at index {index} on attempt {i+1}")
+        await asyncio.sleep(1)  # Wait before retrying
     raise RuntimeError("Could not start camera after 5 attempts.")
 
 async def calibrate(camera, websocket):
